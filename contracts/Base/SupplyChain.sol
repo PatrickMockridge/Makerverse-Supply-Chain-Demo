@@ -12,7 +12,7 @@ contract SupplyChain is AccessControl, Ownable {
   // Define a variable called 'FTI' for Fungible Token Inventory, the number of fungible tokens available to buy
   uint  FTI;
 
-  // Define a public mapping 'items' that maps the NFTID to an FT.
+  // Define a public mapping 'items' that maps the NFTID to a design item.
   mapping (uint => Item) items;
 
   // Define a public mapping 'itemsHistory' that maps the NFTID to an array of TxHash,
@@ -22,7 +22,8 @@ contract SupplyChain is AccessControl, Ownable {
   // Define enum 'State' with the following values:
   enum State
   {
-    NFTMinted
+    NFTMinted,
+    NFTSentForVerification,
     NFTAwaitingVerification,
     NFTSentForVerification,
     NFTVerified,
@@ -48,9 +49,8 @@ contract SupplyChain is AccessControl, Ownable {
     address payable ownerID;  // Metamask-Ethereum address of the current owner as the product moves through the stages
     address payable designerID; // Metamask-Ethereum address of the Designer
     string  designerName; // Designer Name
-    string  designInformation;  // Designer Information (Link to competency platform eventually?)
-    string  productNotes; // Product Notes
-    uint    productPrice; // Product Price
+    string  designInformation;  // Just a string for now, will likely be a tuple/list/dict type or link to IPFS
+    uint    FTPrice; // Price for the FT
     State   itemState;  // Product State as represented in the enum above
     MaterialState itemState2; // Material State of the product as represented by the enum above
     string  productNotesByVerifier; // Product notes that are added by the Verifier
@@ -58,7 +58,7 @@ contract SupplyChain is AccessControl, Ownable {
     address payable playerID; // Metamask-Ethereum address of the Player
   }
 
-  // Define events with the same 18 state values and accept 'upc' as input argument
+  // Define events with the same state values and accept 'upc' as input argument
     // event createNFT??
     event NFTMinted (uint NFTID);
     event NFTSentForVerification (uint NFTID);
@@ -141,10 +141,10 @@ contract SupplyChain is AccessControl, Ownable {
 
 
   // In the constructor
-  // set 'sku' to 1
-  // and set 'upc' to 1
+  // set 'FTInventory' to 0
+  // and set 'NFTID' to 1
   constructor() public payable {
-    FTI = 1;
+    FTInventory = 0;
     NFTID = 1;
   }
 
@@ -162,8 +162,7 @@ contract SupplyChain is AccessControl, Ownable {
   function mintNFT(uint _NFTID,
     address _designerID,
     string memory _designerName,
-    string memory _designerInformation,
-    string memory _productNotes) public
+    string memory _designInformation ) public
 
   verifyCaller(_designerID) //VerifyCaller
   onlyDesigner() // onlyHarvester()
@@ -190,6 +189,7 @@ contract SupplyChain is AccessControl, Ownable {
   }
 
   // Define a function 'sendForVerification' which is qualitatively similar to making an item available for sale
+  // needs some kind of information sharing authorisation code
   function sendForVerification(uint _NFTID) public
   // Call modifier to check if NFTID has passed previous supply chain stage
   nftminted(_NFTID)
@@ -257,7 +257,7 @@ contract SupplyChain is AccessControl, Ownable {
 
   // Define a function 'create' that allows the distributor to mark an item 'FTCreated'
   // Use the above modifers to check if the item is sold
-  function createFT(uint _upc) public
+  function createFT(uint _NFTID) public
     // Call modifier to check if upc has passed previous supply chain stage
     nftverified(_NFTID)
     // Only harvester
@@ -266,7 +266,7 @@ contract SupplyChain is AccessControl, Ownable {
     verifyCaller(items[_NFTID].designerID)
     {
     // Update the appropriate fields (needs an asynchronous callback to enjin cloud somehow)
-    items[_upc].itemState = State.FTCreated;
+    items[_NFTID].itemState = State.FTCreated;
 
     // Emit the appropriate event
     emit CreateFT(_NFTID);
@@ -291,9 +291,9 @@ contract SupplyChain is AccessControl, Ownable {
     emit FTForSale(_NFTID);
   }
 
-  function buyFT(uint _upc) public payable
+  function buyFT(uint _NFTID) public payable
     // Call modifier to check if upc has passed previous supply chain stage
-    FTForSale(_upc)
+    FTForSale(_NFTID)
     // Only distributor
     onlyPlayer()
     // Call modifer to check if buyer has paid enough
@@ -323,73 +323,68 @@ contract SupplyChain is AccessControl, Ownable {
     verifyCaller(items[_NFTID].designerID)
     {
     // Update the appropriate fields
-    items[_upc].itemState = State.FTMinted;
-
+    items[_NFTID].itemState = State.FTMinted;
+    items[_NFTID].itemState2 = MaterialState.FT
     // Emit the appropriate event
     emit FTMinted(_NFTID);
   }
 
-  // Work this out later
-  function fetchItemBufferOne(uint _NFTID) public view returns
+  // Work out parameters
+  function fetchNFTBuffer(uint _NFTID) public view returns
   (
-  uint    itemSKU,
-  uint    itemUPC,
+  uint    FTInventory,
+  uint    NFTID,
   address ownerID,
-  address originHarvesterID,
-  string memory originHarvesterName,
-  string memory originHarvesterInformation
+  address designerID,
+  address verifierID,
+  string memory designerName,
+  string memory verifierName,
+  string memory designInformation
   )
   {
   // Assign values to the 8 parameters
-  Item memory returnItem = items[_upc];
+  Item memory returnItem = items[_NFTID];
 
   return
   (
-  returnItem.sku,
-  returnItem.upc,
-  returnItem.ownerID,
-  returnItem.originHarvesterID,
-  returnItem.originHarvesterName,
-  returnItem.originHarvesterInformation,
-  returnItem.originHarvesterLatitude,
-  returnItem.originHarvesterLongitude
+  returnItem.FTInventory,
+  returnItem.NFTID,
+  returnItem.designerID,
+  returnItem.verifierID,
+  returnItem.designerName,
+  returnItem.verifierName,
+  returnItem.designInformation
   );
   }
 
-  // Define a function 'fetchItemBufferTwo' that fetches the data
-  function fetchItemBufferTwo(uint _upc) public view returns
+  // Work out parameters
+  function fetchFTBuffer(uint _upc) public view returns
   (
-  uint    itemSKU,
-  uint    itemUPC,
-  uint    productID,
-  string memory productNotes,
-  string memory productNotesByManufacturer,
-  uint    productPrice,
-  State   itemState,
-  MaterialState    itemState2,
-  address payable manufacturerID,
-  address payable distributorID,
-  address payable retailerID,
-  address payable consumerID
+    uint    FTInventory,
+    uint    NFTID,
+    address ownerID,
+    address designerID,
+    address verifierID,
+    string memory designerName,
+    string memory verifierName,
+    string memory designInformation
+    address payable playerID
   )
   {
-    // Assign values to the 9 parameters
-  Item memory returnItem = items[_upc];
+    // Assign values to the parameters
+  Item memory returnItem = items[_NFTID];
 
   return
   (
-  returnItem.sku,
-  returnItem.upc,
-  returnItem.productID,
-  returnItem.productNotes,
-  returnItem.productNotesByManufacturer,
-  returnItem.productPrice,
-  returnItem.itemState,
-  returnItem.itemState2,
-  returnItem.manufacturerID,
-  returnItem.distributorID,
-  returnItem.retailerID,
-  returnItem.consumerID
+  returnItem.FTInventory,
+  returnItem.NFTID,
+  returnItem.ownerID,
+  returnItem.designerID,
+  returnItem.verifierID,
+  returnItem.designerName,
+  returnItem.verifierName,
+  returnItem.designInformation,
+  returnItem.playerID
   );
   }
 }
